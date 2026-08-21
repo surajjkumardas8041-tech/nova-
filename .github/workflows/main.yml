@@ -18,34 +18,55 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Extract and Fix Project Structure
+      - name: Extract Project
         run: |
-          # ১. ZIP ফাইল সঠিকভাবে এক্সট্র্যাক্ট করা
           ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1)
           if [ -n "$ZIP_FILE" ]; then
             echo "Extracting $ZIP_FILE..."
             unzip -o "$ZIP_FILE" -d extracted_tmp
-            
-            # settings.gradle খুঁজে আসল রুট ফোল্ডার সনাক্ত করা
             SETTINGS_FILE=$(find extracted_tmp -iname "settings.gradle*" | head -n 1)
             if [ -n "$SETTINGS_FILE" ]; then
               PROJ_DIR=$(dirname "$SETTINGS_FILE")
-              echo "Found project root at: $PROJ_DIR"
               cp -a "$PROJ_DIR"/. .
             fi
             rm -rf extracted_tmp
           fi
 
-          # ২. মিসিং XML ফাইল তৈরি নিশ্চিত করা
+      - name: Generate Missing Fallback Resources
+        run: |
+          mkdir -p app/src/main/res/mipmap
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
-          if [ ! -f "app/src/main/res/xml/data_extraction_rules.xml" ]; then
-            echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><include domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > app/src/main/res/xml/data_extraction_rules.xml
+
+          DUMMY_VECTOR='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF000000" android:pathData="M0,0h24v24H0z"/></vector>'
+
+          # ১. আইকন ও ড্রয়েবল জেনারেট করা
+          if [ -z "$(find app/src/main/res -name 'ic_launcher.*')" ]; then
+            echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher.xml
           fi
-          if [ ! -f "app/src/main/res/xml/backup_rules.xml" ]; then
-            echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content></full-backup-content>' > app/src/main/res/xml/backup_rules.xml
+          if [ -z "$(find app/src/main/res -name 'ic_launcher_round.*')" ]; then
+            echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher_round.xml
+          fi
+          if [ -z "$(find app/src/main/res -name 'ic_nova_tile.*')" ]; then
+            echo "$DUMMY_VECTOR" > app/src/main/res/drawable/ic_nova_tile.xml
           fi
 
-          # ৩. gradlew পারমিশন দেওয়া
+          # ২. মিসিং থিম তৈরি করা
+          cat << 'EOF' > app/src/main/res/values/generated_themes.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.NovaAssistant" parent="android:Theme.Material.Light.NoActionBar" />
+              <style name="Theme.NovaAssistant.Translucent" parent="Theme.NovaAssistant" />
+          </resources>
+          EOF
+
+          # ৩. মিসিং XML সার্ভিস কনফিগ ফাইল তৈরি করা
+          echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><include domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > app/src/main/res/xml/data_extraction_rules.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content></full-backup-content>' > app/src/main/res/xml/backup_rules.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><recognition-service xmlns:android="http://schemas.android.com/apk/res/android" />' > app/src/main/res/xml/recognition_service.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><accessibility-service xmlns:android="http://schemas.android.com/apk/res/android" />' > app/src/main/res/xml/accessibility_service_config.xml
+
           if [ -f "gradlew" ]; then
             chmod +x gradlew
           fi
