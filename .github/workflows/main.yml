@@ -32,17 +32,22 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Fix XML Attributes and Fallback Resources
+      - name: Fix Memory Limits and Fallback Resources
         run: |
+          # ১. Gradle Heap Memory বাড়িয়ে ২০৪৮MB করা
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> gradle.properties
+          echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
+
+          # ২. রিসোর্স ফোল্ডার নিশ্চিত করা ও এরর তৈরি করা XML অ্যাট্রিবিউট মোছা
           mkdir -p app/src/main/res/mipmap
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
 
-          # ১. সমস্যা তৈরি করা invalid XML attribute টি রিমুভ করা
-          find app/src/main/res/xml/ -type f -name "*.xml" -exec sed -i 's/android:supportsLaunchFromKeyguard="[^"]*"//g' {} +
+          find app/src/main/res/xml/ -type f -name "*.xml" -exec sed -i 's/android:supportsLaunchFromKeyguard="[^"]*"//g' {} + 2>/dev/null || true
 
-          # ২. আইকন ও ড্রয়েবল জেনারেট করা
+          # ৩. মিসিং আইকন ও ড্রয়েবল জেনারেট করা
           DUMMY_VECTOR='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF000000" android:pathData="M0,0h24v24H0z"/></vector>'
 
           if [ -z "$(find app/src/main/res -name 'ic_launcher.*')" ]; then
@@ -55,7 +60,7 @@ jobs:
             echo "$DUMMY_VECTOR" > app/src/main/res/drawable/ic_nova_tile.xml
           fi
 
-          # ৩. মিসিং থিম ও ব্যাকআপ ফাইল তৈরি করা
+          # ৪. মিসিং থিম ও অন্যান্য ফাইল জেনারেট করা
           cat << 'EOF' > app/src/main/res/values/generated_themes.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -79,6 +84,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build Debug APK
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m"
         run: |
           if [ -f "./gradlew" ]; then
             ./gradlew assembleDebug --no-daemon
