@@ -34,27 +34,47 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Inspect and Patch AssistantViewModel
+      - name: Safely Fix Source Codes
         run: |
-          # ১. MainActivity-এর টেক্সট ভুল ঠিক করা
-          MAIN_FILE=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
-          if [ -n "$MAIN_FILE" ]; then
-            sed -i 's/Text(text = ""$cmd"")/Text(text = cmd)/g' "$MAIN_FILE"
-            sed -i 's/Text(text = "\\" $cmd \\"")/Text(text = cmd)/g' "$MAIN_FILE"
-          fi
+          python3 -c '
+          import glob, re
 
-          # ২. AssistantViewModel ফাইল পরীক্ষা ও প্যাচ
-          VM_FILE=$(find app/src/main/java -iname "AssistantViewModel.kt" | head -n 1)
-          if [ -n "$VM_FILE" ]; then
-            echo "=== Missing Class Locations ==="
-            grep -rn "class CommandHistoryItem\|class NoteItem\|class ReminderItem\|class AssistantIntentAction" app/src/main/java || true
+          # 1. Fix MainActivity.kt
+          main_files = glob.glob("app/src/main/java/**/MainActivity.kt", recursive=True)
+          if main_files:
+              with open(main_files[0], "r") as f:
+                  text = f.read()
+              text = text.replace("Text(text = \"\"$cmd\"\")", "Text(text = cmd)")
+              text = text.replace("Text(text = \"\\\" $cmd \\\")", "Text(text = cmd)")
+              with open(main_files[0], "w") as f:
+                  f.write(text)
 
-            echo "=== Lines 100-125 of AssistantViewModel ==="
-            sed -n '100,125p' "$VM_FILE"
-
-            # অটোমেটিক ইমপোর্ট ও সোর্স ফিক্স
-            sed -i '1i package com.nova.assistant.ui.viewmodel\nimport com.nova.assistant.data.*\nimport com.nova.assistant.data.model.*\nimport com.nova.assistant.model.*\nimport com.nova.assistant.*' "$VM_FILE"
-          fi
+          # 2. Fix AssistantViewModel.kt imports
+          vm_files = glob.glob("app/src/main/java/**/AssistantViewModel.kt", recursive=True)
+          if vm_files:
+              with open(vm_files[0], "r") as f:
+                  lines = f.readlines()
+              
+              clean_lines = [l for l in lines if not l.strip().startswith("import com.nova.assistant")]
+              content = "".join(clean_lines)
+              
+              imports = (
+                  "\nimport com.nova.assistant.*\n"
+                  "import com.nova.assistant.data.*\n"
+                  "import com.nova.assistant.data.model.*\n"
+                  "import com.nova.assistant.model.*\n"
+              )
+              
+              if "package " in content:
+                  parts = content.split("package ", 1)
+                  pkg_line, rest = parts[1].split("\n", 1)
+                  final_code = "package " + pkg_line + "\n" + imports + rest
+              else:
+                  final_code = "package com.nova.assistant.ui.viewmodel\n" + imports + content
+                  
+              with open(vm_files[0], "w") as f:
+                  f.write(final_code)
+          '
 
       - name: Fix Resources and Memory
         run: |
