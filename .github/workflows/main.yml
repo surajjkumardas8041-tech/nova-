@@ -34,13 +34,20 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Auto-Fix MainActivity Kotlin Syntax Error
+      - name: Fix Missing Imports and Code Errors
         run: |
-          FILE=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
-          if [ -n "$FILE" ]; then
-            echo "Fixing syntax error in $FILE..."
-            sed -i 's/Text(text = ""$cmd"")/Text(text = cmd)/g' "$FILE"
-            sed -i 's/Text(text = "\\" $cmd \\"")/Text(text = cmd)/g' "$FILE"
+          # ১. MainActivity-এর টেক্সট সিনট্যাক্স ফিক্স
+          MAIN_FILE=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
+          if [ -n "$MAIN_FILE" ]; then
+            sed -i 's/Text(text = ""$cmd"")/Text(text = cmd)/g' "$MAIN_FILE"
+            sed -i 's/Text(text = "\\" $cmd \\"")/Text(text = cmd)/g' "$MAIN_FILE"
+          fi
+
+          # ২. AssistantViewModel-এ মিসিং ইমপোর্ট যুক্ত করা
+          VM_FILE=$(find app/src/main/java -iname "AssistantViewModel.kt" | head -n 1)
+          if [ -n "$VM_FILE" ]; then
+            echo "Patching imports in $VM_FILE..."
+            sed -i '/^package /a import com.nova.assistant.data.model.*\nimport com.nova.assistant.model.*\nimport com.nova.assistant.*' "$VM_FILE"
           fi
 
       - name: Fix Resources and Memory
@@ -93,4 +100,3 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          
