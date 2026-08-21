@@ -1,0 +1,58 @@
+name: Nova APK Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find and extract Nova ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          echo "Found ZIP: $ZIP_FILE"
+          test -n "$ZIP_FILE"
+          mkdir nova-project
+          unzip -q "$ZIP_FILE" -d nova-project
+          find nova-project -maxdepth 3 -type f | head -100
+
+      - name: Locate Android project
+        run: |
+          PROJECT_DIR=$(find nova-project -name settings.gradle.kts -o -name settings.gradle | head -n 1)
+          PROJECT_DIR=$(dirname "$PROJECT_DIR")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project: $PROJECT_DIR"
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Create real Gradle Wrapper
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          rm -f gradle/wrapper/gradle-wrapper.jar
+          gradle wrapper --gradle-version 8.7
+          chmod +x gradlew
+          ./gradlew --version
+
+      - name: Build Nova Debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload Nova APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nova-Debug-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
