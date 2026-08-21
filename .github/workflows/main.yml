@@ -58,5 +58,6 @@ jobs:
           if-no-files-found: error
       - name: Enable AndroidX
         run: |
-          echo "android.useAndroidX=true" >> "${PROJECT_DIR}/gradle.properties"
-          echo "android.enableJetifier=true" >> "${PROJECT_DIR}/gradle.properties"
+          echo "android.useAndroidX=true" >> "${{ env.PROJECT_DIR }}/gradle.properties"
+          echo "android.enableJetifier=true" >> "${{ env.PROJECT_DIR }}/gradle.properties"
+          
