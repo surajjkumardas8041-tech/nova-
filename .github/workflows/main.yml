@@ -34,12 +34,13 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Inspect MainActivity Line 302
+      - name: Print Code Around Line 302
         run: |
-          MAIN_ACT=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
-          if [ -n "$MAIN_ACT" ]; then
-            echo "=== Code around line 302 in MainActivity.kt ==="
-            sed -n '295,310p' "$MAIN_ACT"
+          FILE=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
+          if [ -n "$FILE" ]; then
+            echo "================ LINE 295 TO 310 ================"
+            sed -n '295,310p' "$FILE"
+            echo "================================================="
           fi
 
       - name: Fix Resources and Memory
