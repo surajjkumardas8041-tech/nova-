@@ -34,13 +34,13 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Print Code Around Line 302
+      - name: Auto-Fix MainActivity Kotlin Syntax Error
         run: |
           FILE=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
           if [ -n "$FILE" ]; then
-            echo "================ LINE 295 TO 310 ================"
-            sed -n '295,310p' "$FILE"
-            echo "================================================="
+            echo "Fixing syntax error in $FILE..."
+            sed -i 's/Text(text = ""$cmd"")/Text(text = cmd)/g' "$FILE"
+            sed -i 's/Text(text = "\\" $cmd \\"")/Text(text = cmd)/g' "$FILE"
           fi
 
       - name: Fix Resources and Memory
