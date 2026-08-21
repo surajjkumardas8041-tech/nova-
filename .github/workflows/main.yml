@@ -34,26 +34,29 @@ jobs:
             rm -rf extracted_tmp
           fi
 
+      - name: Inspect MainActivity Line 302
+        run: |
+          MAIN_ACT=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
+          if [ -n "$MAIN_ACT" ]; then
+            echo "=== Code around line 302 in MainActivity.kt ==="
+            sed -n '295,310p' "$MAIN_ACT"
+          fi
+
       - name: Fix Resources and Memory
         run: |
-          # ১. Memory Limit বাড়ানো
           mkdir -p ~/.gradle
           echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
 
-          # ২. প্রয়োজনীয় ফোল্ডার তৈরি
           mkdir -p app/src/main/res/mipmap app/src/main/res/drawable app/src/main/res/values app/src/main/res/xml
 
-          # ৩. Invalid XML Attribute রিমুভ করা
           find app/src/main/res/xml/ -type f -name "*.xml" -exec sed -i 's/android:supportsLaunchFromKeyguard="[^"]*"//g' {} + 2>/dev/null || true
 
-          # ৪. মিসিং আইকন জেনারেট করা
           DUMMY_VECTOR='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF000000" android:pathData="M0,0h24v24H0z"/></vector>'
 
           [ ! -f "app/src/main/res/mipmap/ic_launcher.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher.xml
           [ ! -f "app/src/main/res/mipmap/ic_launcher_round.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher_round.xml
           [ ! -f "app/src/main/res/drawable/ic_nova_tile.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/drawable/ic_nova_tile.xml
 
-          # ৫. থিম ও সকল সার্ভিস কনফিগ তৈরি
           cat << 'EOF' > app/src/main/res/values/generated_themes.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
