@@ -56,3 +56,7 @@ jobs:
           name: Nova-Debug-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Enable AndroidX
+        run: |
+          echo "android.useAndroidX=true" >> "${PROJECT_DIR}/gradle.properties"
+          echo "android.enableJetifier=true" >> "${PROJECT_DIR}/gradle.properties"
