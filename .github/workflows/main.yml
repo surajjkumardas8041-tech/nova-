@@ -34,20 +34,26 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Fix Missing Imports and Code Errors
+      - name: Inspect and Patch AssistantViewModel
         run: |
-          # ১. MainActivity-এর টেক্সট সিনট্যাক্স ফিক্স
+          # ১. MainActivity-এর টেক্সট ভুল ঠিক করা
           MAIN_FILE=$(find app/src/main/java -iname "MainActivity.kt" | head -n 1)
           if [ -n "$MAIN_FILE" ]; then
             sed -i 's/Text(text = ""$cmd"")/Text(text = cmd)/g' "$MAIN_FILE"
             sed -i 's/Text(text = "\\" $cmd \\"")/Text(text = cmd)/g' "$MAIN_FILE"
           fi
 
-          # ২. AssistantViewModel-এ মিসিং ইমপোর্ট যুক্ত করা
+          # ২. AssistantViewModel ফাইল পরীক্ষা ও প্যাচ
           VM_FILE=$(find app/src/main/java -iname "AssistantViewModel.kt" | head -n 1)
           if [ -n "$VM_FILE" ]; then
-            echo "Patching imports in $VM_FILE..."
-            sed -i '/^package /a import com.nova.assistant.data.model.*\nimport com.nova.assistant.model.*\nimport com.nova.assistant.*' "$VM_FILE"
+            echo "=== Missing Class Locations ==="
+            grep -rn "class CommandHistoryItem\|class NoteItem\|class ReminderItem\|class AssistantIntentAction" app/src/main/java || true
+
+            echo "=== Lines 100-125 of AssistantViewModel ==="
+            sed -n '100,125p' "$VM_FILE"
+
+            # অটোমেটিক ইমপোর্ট ও সোর্স ফিক্স
+            sed -i '1i package com.nova.assistant.ui.viewmodel\nimport com.nova.assistant.data.*\nimport com.nova.assistant.data.model.*\nimport com.nova.assistant.model.*\nimport com.nova.assistant.*' "$VM_FILE"
           fi
 
       - name: Fix Resources and Memory
@@ -100,3 +106,4 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          
