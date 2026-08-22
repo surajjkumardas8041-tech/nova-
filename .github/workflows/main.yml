@@ -34,7 +34,7 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Advanced Kotlin Type & Component Fixer
+      - name: Ultimate Kotlin Syntax & Type Fixer
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
@@ -51,7 +51,7 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Define App Models and Stubs
+          # 2. Inject Clean Non-Conflicting Stubs
           os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
           with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.model
@@ -90,7 +90,7 @@ jobs:
           const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
           ''')
 
-          # 3. Safe Precision Patching on Kotlin Source Files
+          # 3. Patch All Kotlin Code Safely
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
               if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt", "AppReceivers.kt"]):
                   continue
@@ -98,20 +98,20 @@ jobs:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Safe Regex replacements for Regex MatchGroups
+                  # Explicit Type Arguments for Generic Maps (Solves K, V type inference error)
+                  content = re.sub(r'\bemptyMap\(\)', 'emptyMap<Any, Any>()', content)
+                  content = re.sub(r'\bmutableMapOf\(\)', 'mutableMapOf<Any, Any>()', content)
+                  content = re.sub(r'\bmapOf\(\)', 'mapOf<Any, Any>()', content)
+
+                  # Regex MatchGroup Indexing Fixes
                   content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value ?: ""', content)
                   content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value ?: ""', content)
 
-                  # Fix Map Type Inference issues (K, V errors in Service)
-                  content = re.sub(r'\bemptyMap\(\)', 'emptyMap<String, Any>()', content)
-                  content = re.sub(r'\bmutableMapOf\(\)', 'mutableMapOf<String, Any>()', content)
+                  # ComponentName and View Overload fixes
+                  content = re.sub(r'\bcomponentName\b', 'android.content.ComponentName(this, this::class.java)', content)
+                  content = re.sub(r'\.inflate\(([^,]+),\s*null\)', r'.inflate(\1, null as android.view.ViewGroup?)', content)
 
-                  # Fix ComponentName and Layout Inflate issues in Services
-                  if "NovaVoiceInteractionSessionService.kt" in kt_file or "NovaForegroundVoiceService.kt" in kt_file:
-                      content = re.sub(r'\bcomponentName\b', 'android.content.ComponentName(this, this::class.java)', content)
-                      content = re.sub(r'\.inflate\(([^,]+),\s*null\)', r'.inflate(\1, null as android.view.ViewGroup?)', content)
-
-                  # Fix IntentActionHandler Payload
+                  # Fix IntentActionHandler Payload String casting
                   if "IntentActionHandler.kt" in kt_file:
                       content = content.replace("action.payload", "action.payload.toString()")
 
@@ -120,7 +120,7 @@ jobs:
                       content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
                       content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
 
-                  # Clean Packages and Imports
+                  # Clean Packages and Import Hierarchy
                   lines = content.split('\n')
                   pkg_line = ""
                   import_lines = set()
@@ -135,7 +135,7 @@ jobs:
                       else:
                           body_lines.append(line)
 
-                  # Ensure essential package imports
+                  # Force Essential Imports into All Files
                   import_lines.add("import com.nova.assistant.R")
                   import_lines.add("import com.nova.assistant.model.*")
                   import_lines.add("import com.nova.assistant.intents.*")
