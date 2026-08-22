@@ -34,49 +34,18 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Auto Fix Source Code Structure & Missing References
+      - name: Create Global Stubs and Fix Source Files
         run: |
           cat << 'EOF' > fix_script.py
           import glob, re, os
 
-          # 1. Discover all existing packages in project
-          existing_packages = set()
-          all_code = ""
-          for root, dirs, files in os.walk("app/src/main/java"):
-              for file in files:
-                  if file.endswith((".kt", ".java")):
-                      filepath = os.path.join(root, file)
-                      with open(filepath, "r", encoding="utf-8", errors="ignore") as pf:
-                          code = pf.read()
-                          all_code += code + "\n"
-                          for line in code.split("\n"):
-                              sline = line.strip()
-                              if sline.startswith("package "):
-                                  pkg = sline.split("package ")[1].strip()
-                                  if pkg:
-                                      existing_packages.add(f"import {pkg}.*")
+          # 1. Generate Global Stubs File (accessible everywhere in app)
+          base_dir = "app/src/main/java/com/nova/assistant"
+          os.makedirs(base_dir, exist_ok=True)
+          
+          stub_code = '''package com.nova.assistant
 
-          # 2. Fix MainActivity.kt
-          for main_file in glob.glob("app/src/main/java/**/MainActivity.kt", recursive=True):
-              with open(main_file, "r", encoding="utf-8", errors="ignore") as f:
-                  content = f.read()
-              content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
-              content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
-              with open(main_file, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-          # 3. Prepare Stubs for Missing Classes
-          stubs = []
-          if "class NoteItem" not in all_code and "data class NoteItem" not in all_code:
-              stubs.append('data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)')
-          if "class ReminderItem" not in all_code and "data class ReminderItem" not in all_code:
-              stubs.append('data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)')
-          if "class CommandHistoryItem" not in all_code and "data class CommandHistoryItem" not in all_code:
-              stubs.append('data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)')
-          if "class NovaAIBrainClient" not in all_code:
-              stubs.append('class NovaAIBrainClient { suspend fun query(s: String): String = "" }')
-          if "class AssistantIntentAction" not in all_code:
-              stubs.append('''open class AssistantIntentAction(
+          open class AssistantIntentAction(
               open val type: String = "",
               open val payload: Any? = null,
               open val action: String = "",
@@ -84,34 +53,50 @@ jobs:
           ) {
               object None : AssistantIntentAction()
               data class OpenApp(override val appName: String = "") : AssistantIntentAction(action = appName)
-          }''')
+          }
 
-          # 4. Fix AssistantViewModel.kt Structure
-          for vm_file in glob.glob("app/src/main/java/**/AssistantViewModel.kt", recursive=True):
-              with open(vm_file, "r", encoding="utf-8", errors="ignore") as f:
-                  lines = f.readlines()
+          data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
+          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
+          data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
+          class NovaAIBrainClient { suspend fun query(s: String): String = "" }
+          '''
+          
+          with open(os.path.join(base_dir, "GeneratedGlobalStubs.kt"), "w", encoding="utf-8") as f:
+              f.write(stub_code)
 
-              pkg_line = "package com.nova.assistant.ui.viewmodel"
-              import_lines = set(existing_packages)
-              body_lines = []
+          # 2. Fix All Kotlin Files (Remove bad imports and add base import)
+          for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
+              with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+
+              # Fix MainActivity syntax issues
+              if "MainActivity.kt" in kt_file:
+                  content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
+                  content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
+
+              # Clean bad imports (e.g. invalid 'import com.nova.assistant.model')
+              lines = content.split("\n")
+              new_lines = []
+              pkg_found = False
 
               for line in lines:
                   sline = line.strip()
-                  if sline.startswith("package "):
-                      pkg_line = sline
-                  elif sline.startswith("import "):
-                      if "import com.nova.assistant.network" not in sline:
-                          import_lines.add(sline)
-                  else:
-                      body_lines.append(line)
+                  if sline == "import com.nova.assistant.model":
+                      continue  # skip invalid import
+                  
+                  new_lines.append(line)
+                  if sline.startswith("package ") and not pkg_found:
+                      pkg_found = True
+                      new_lines.append("import com.nova.assistant.*")
 
-              body_text = "".join(body_lines)
-              body_text = re.sub(r'(\.groups\[[^\]]+\])(?!\s*\?\.\s*value|\s*\.\s*value)', r'\1?.value', body_text)
+              content = "\n".join(new_lines)
 
-              final_content = pkg_line + "\n\n" + "\n".join(sorted(list(import_lines))) + "\n\n" + "\n".join(stubs) + "\n\n" + body_text
+              # Fix Array/Index operator error on MatchGroup
+              content = re.sub(r'(\.groups\[[^\]]+\])(?!\s*\?\.\s*value|\s*\.\s*value)', r'\1?.value', content)
+              content = re.sub(r'group\[(\d+)\]', r'group.get(\1)?.value', content)
 
-              with open(vm_file, "w", encoding="utf-8") as f:
-                  f.write(final_content)
+              with open(kt_file, "w", encoding="utf-8") as f:
+                  f.write(content)
           EOF
           python3 fix_script.py
 
