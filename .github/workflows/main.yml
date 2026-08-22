@@ -34,7 +34,7 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Precise Automated Code Repair
+      - name: Advanced Kotlin Type & Component Fixer
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
@@ -51,7 +51,7 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Inject Required Shared Stubs
+          # 2. Define App Models and Stubs
           os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
           with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.model
@@ -90,35 +90,37 @@ jobs:
           const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
           ''')
 
-          # 3. Fix Specific Kotlin Syntax Errors
+          # 3. Safe Precision Patching on Kotlin Source Files
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              if "AppModels.kt" in kt_file or "AppIntents.kt" in kt_file or "AppReceivers.kt" in kt_file:
+              if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt", "AppReceivers.kt"]):
                   continue
               try:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Fix Map Type Inference Errors (K, V inference in NovaForegroundVoiceService)
-                  content = re.sub(r'\bemptyMap\(\)', 'emptyMap<String, Any>()', content)
-                  content = re.sub(r'\bmutableMapOf\(\)', 'mutableMapOf<String, Any>()', content)
-                  content = re.sub(r'\bmapOf\(\)', 'mapOf<String, Any>()', content)
-
-                  # Fix ComponentName resolution
-                  content = content.replace("componentName", "android.content.ComponentName(this, this::class.java)")
-
-                  # Fix Array & Regex MatchGroup Indexing
+                  # Safe Regex replacements for Regex MatchGroups
                   content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value ?: ""', content)
                   content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value ?: ""', content)
 
-                  # Fix Layout Inflation Overload Ambiguity
-                  if "NovaVoiceInteractionSessionService.kt" in kt_file:
-                      content = re.sub(r'inflate\(([^,]+),\s*null\)', r'inflate(\1, null as android.view.ViewGroup?)', content)
+                  # Fix Map Type Inference issues (K, V errors in Service)
+                  content = re.sub(r'\bemptyMap\(\)', 'emptyMap<String, Any>()', content)
+                  content = re.sub(r'\bmutableMapOf\(\)', 'mutableMapOf<String, Any>()', content)
+
+                  # Fix ComponentName and Layout Inflate issues in Services
+                  if "NovaVoiceInteractionSessionService.kt" in kt_file or "NovaForegroundVoiceService.kt" in kt_file:
+                      content = re.sub(r'\bcomponentName\b', 'android.content.ComponentName(this, this::class.java)', content)
+                      content = re.sub(r'\.inflate\(([^,]+),\s*null\)', r'.inflate(\1, null as android.view.ViewGroup?)', content)
 
                   # Fix IntentActionHandler Payload
                   if "IntentActionHandler.kt" in kt_file:
                       content = content.replace("action.payload", "action.payload.toString()")
 
-                  # Clean Imports
+                  # Fix MainActivity syntax issue
+                  if "MainActivity.kt" in kt_file:
+                      content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
+                      content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
+
+                  # Clean Packages and Imports
                   lines = content.split('\n')
                   pkg_line = ""
                   import_lines = set()
@@ -133,7 +135,7 @@ jobs:
                       else:
                           body_lines.append(line)
 
-                  # Ensure essential imports
+                  # Ensure essential package imports
                   import_lines.add("import com.nova.assistant.R")
                   import_lines.add("import com.nova.assistant.model.*")
                   import_lines.add("import com.nova.assistant.intents.*")
