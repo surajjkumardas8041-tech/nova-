@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Precise Code Repair (Preserving Full Call Control)
+      - name: Precise Automated Code Repair
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Strip problematic XML attributes safely
+          # 1. Clean unsupported XML attributes
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,24 +51,71 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Fix Kotlin Files & Clean Imports
+          # 2. Define Shared Stubs ONCE to prevent Type Mismatches
+
+          # Intents Package Stub
+          os.makedirs("app/src/main/java/com/nova/assistant/intents", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/intents/SharedIntentsStubs.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.intents
+
+          open class AssistantIntentAction(
+              open val type: String = "",
+              open val payload: Any? = "",
+              open val action: String = "",
+              open val appName: String = ""
+          ) {
+              object None : AssistantIntentAction()
+              data class OpenApp(override val appName: String = "") : AssistantIntentAction(action = appName)
+          }
+          ''')
+
+          # Model Package Stub
+          os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/model/SharedModelStubs.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.model
+
+          data class ModelItem(val id: String = "", val title: String = "")
+          data class AssistantState(val isListening: Boolean = false)
+          data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
+          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
+          data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
+          class NovaAIBrainClient { suspend fun query(s: String): String = "" }
+          ''')
+
+          # Receiver Package Stub for Call Control
+          os.makedirs("app/src/main/java/com/nova/assistant/receiver", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/receiver/SharedReceiverStubs.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.receiver
+
+          import android.telephony.TelephonyManager
+
+          val ACTION_INCOMING_CALL = TelephonyManager.ACTION_PHONE_STATE_CHANGED
+          val EXTRA_INCOMING_NUMBER = TelephonyManager.EXTRA_INCOMING_NUMBER
+          const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
+          ''')
+
+          # 3. Patch and Repair Kotlin Files
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
+              if "Shared" in kt_file:
+                  continue
               try:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Regex replacements for syntax errors
+                  # Regex replacements for MatchGroup indexing error
                   content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value', content)
                   content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value', content)
 
+                  # Fix IntentActionHandler payload type string casting
                   if "IntentActionHandler.kt" in kt_file:
                       content = content.replace("action.payload", "action.payload.toString()")
 
+                  # Fix MainActivity syntax issue
                   if "MainActivity.kt" in kt_file:
                       content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
                       content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
 
-                  # Clean import positions
+                  # Extract existing imports and package
                   lines = content.split('\n')
                   pkg_line = ""
                   import_lines = set()
@@ -83,7 +130,11 @@ jobs:
                       else:
                           body_lines.append(line)
 
-                  # Add necessary missing imports
+                  # Inject essential R and Stub Imports cleanly at top
+                  import_lines.add("import com.nova.assistant.R")
+                  import_lines.add("import com.nova.assistant.intents.AssistantIntentAction")
+                  import_lines.add("import com.nova.assistant.model.*")
+
                   if "ComponentName" in content: import_lines.add("import android.content.ComponentName")
                   if "LayoutInflater" in content: import_lines.add("import android.view.LayoutInflater")
                   if "View" in content: import_lines.add("import android.view.View")
@@ -100,45 +151,6 @@ jobs:
                       f.write(final_content)
               except Exception:
                   pass
-
-          # 3. Create missing Telephony Constants & Model Stubs
-          global_stubs = '''package com.nova.assistant.receiver
-
-          import android.telephony.TelephonyManager
-
-          val ACTION_INCOMING_CALL = TelephonyManager.ACTION_PHONE_STATE_CHANGED
-          val EXTRA_INCOMING_NUMBER = TelephonyManager.EXTRA_INCOMING_NUMBER
-          const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
-
-          open class AssistantIntentAction(
-              open val type: String = "",
-              open val payload: Any? = "",
-              open val action: String = "",
-              open val appName: String = ""
-          ) {
-              object None : AssistantIntentAction()
-              data class OpenApp(override val appName: String = "") : AssistantIntentAction(action = appName)
-          }
-
-          data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
-          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
-          data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
-          class NovaAIBrainClient { suspend fun query(s: String): String = "" }
-          '''
-
-          packages = [
-              "app/src/main/java/com/nova/assistant",
-              "app/src/main/java/com/nova/assistant/ui/viewmodel",
-              "app/src/main/java/com/nova/assistant/service",
-              "app/src/main/java/com/nova/assistant/receiver",
-              "app/src/main/java/com/nova/assistant/intents",
-              "app/src/main/java/com/nova/assistant/model"
-          ]
-          for p in packages:
-              os.makedirs(p, exist_ok=True)
-              pkg_name = p.replace("app/src/main/java/", "").replace("/", ".")
-              with open(os.path.join(p, "AutoGeneratedStubs.kt"), "w", encoding="utf-8") as f:
-                  f.write(global_stubs.replace("package com.nova.assistant.receiver", f"package {pkg_name}"))
 
           EOF
           python3 fix_script.py
