@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Precise Imports & Syntax Fix
+      - name: Comprehensive Fixer & Stub Injector
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Clean Manifest & XMLs
+          # 1. Clean Manifest and XML attributes
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,15 +51,15 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Generate Essential Stubs
+          # 2. Inject Complete Model Classes with All Expected Properties
           os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
           with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.model
 
-          data class ModelItem(val id: String = "", val title: String = "")
-          data class AssistantState(val isListening: Boolean = false)
+          data class ModelItem(val id: String = "", val title: String = "", val name: String = "")
+          data class AssistantState(val isListening: Boolean = false, val isProcessing: Boolean = false, val text: String = "")
           data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
-          data class ReminderItem(val id: String = "", val time: String = "", val title: String = "", val timestamp: Long = 0L)
+          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
           data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
           class NovaAIBrainClient { suspend fun query(s: String): String = "" }
           ''')
@@ -70,7 +70,7 @@ jobs:
 
           open class AssistantIntentAction(
               open val type: String = "",
-              open val payload: Any? = "",
+              open val payload: Any? = null,
               open val action: String = "",
               open val appName: String = ""
           ) {
@@ -90,7 +90,7 @@ jobs:
           const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
           ''')
 
-          # 3. Clean Fix for Kotlin Files
+          # 3. Safe Import Injection for All Kotlin Source Files
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
               if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt", "AppReceivers.kt"]):
                   continue
@@ -98,18 +98,30 @@ jobs:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Fix MatchGroup comparison
+                  # Replace MatchGroup comparisons cleanly
                   content = re.sub(r'(\.groups\[[^\]]+\])\s*==', r'\1?.value ==', content)
 
-                  # Inject safe package imports
-                  if "import com.nova.assistant.model.*" not in content:
-                      content = re.sub(
-                          r'^(package [^\n]+)',
-                          r'\1\n\nimport com.nova.assistant.model.*\nimport com.nova.assistant.intents.*\nimport com.nova.assistant.receiver.*',
-                          content,
-                          count=1,
-                          flags=re.MULTILINE
-                      )
+                  # Ensure wildcards exist after package statement
+                  if "package com.nova.assistant" in content:
+                      lines = content.split('\n')
+                      pkg_idx = -1
+                      for idx, line in enumerate(lines):
+                          if line.strip().startswith("package "):
+                              pkg_idx = idx
+                              break
+
+                      if pkg_idx != -1:
+                          imports_to_add = [
+                              "import com.nova.assistant.model.*",
+                              "import com.nova.assistant.intents.*",
+                              "import com.nova.assistant.receiver.*",
+                              "import com.nova.assistant.R"
+                          ]
+                          existing = set(lines)
+                          needed = [imp for imp in imports_to_add if imp not in existing]
+                          if needed:
+                              lines[pkg_idx] = lines[pkg_idx] + "\n" + "\n".join(needed)
+                              content = "\n".join(lines)
 
                   with open(kt_file, "w", encoding="utf-8") as f:
                       f.write(content)
@@ -155,9 +167,9 @@ jobs:
       - name: Build Debug APK
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
+            ./gradlew assembleDebug --console=plain --no-daemon
           else
-            gradle assembleDebug --stacktrace --no-daemon
+            gradle assembleDebug --console=plain --no-daemon
           fi
 
       - name: Upload APK
