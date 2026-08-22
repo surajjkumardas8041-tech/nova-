@@ -34,26 +34,67 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Fully Automated Source & XML Fixer
+      - name: Precise Automated Source Fixer
         run: |
           cat << 'EOF' > fix_script.py
           import glob, re, os
 
-          # 1. Strip unsupported XML attributes from ALL xml files in the repo
+          # 1. Strip unsupported XML attributes
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
-                  
                   new_content = re.sub(r'android:supportsLaunchFromKeyguard="[^"]*"', '', content)
-                  
                   if new_content != content:
                       with open(xml_file, "w", encoding="utf-8") as f:
                           f.write(new_content)
-              except Exception as e:
+              except Exception:
                   pass
 
-          # 2. Patch Kotlin Source Code Errors
+          # 2. Fix Kotlin Files safely
+          for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
+              with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+
+              # Remove invalid model/network imports
+              lines = content.split("\n")
+              clean_lines = []
+              for line in lines:
+                  sline = line.strip()
+                  if sline.startswith("import ") and (".model" in sline or ".network" in sline):
+                      continue
+                  clean_lines.append(line)
+              content = "\n".join(clean_lines)
+
+              # Safely inject missing Android imports only if absent
+              needed_imports = [
+                  "import android.content.ComponentName",
+                  "import android.view.View",
+                  "import android.view.LayoutInflater"
+              ]
+              pkg_idx = content.find("package ")
+              if pkg_idx != -1:
+                  end_of_pkg = content.find("\n", pkg_idx)
+                  to_add = [imp for imp in needed_imports if imp not in content]
+                  if to_add:
+                      content = content[:end_of_pkg+1] + "\n" + "\n".join(to_add) + "\n" + content[end_of_pkg+1:]
+
+              # Fix MatchGroup / Collection indexing in AssistantViewModel
+              content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value', content)
+              content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value', content)
+
+              # Cleanup bad selector syntax caused by previous replacements
+              content = content.replace('.null', '')
+
+              # Fix MainActivity syntax errors
+              if "MainActivity.kt" in kt_file:
+                  content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
+                  content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
+
+              with open(kt_file, "w", encoding="utf-8") as f:
+                  f.write(content)
+
+          # 3. Create missing classes/stubs
           stub_classes = '''
           open class AssistantIntentAction(
               open val type: String = "",
@@ -70,44 +111,6 @@ jobs:
           data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
           class NovaAIBrainClient { suspend fun query(s: String): String = "" }
           '''
-
-          essential_imports = """
-          import android.content.ComponentName
-          import android.view.View
-          import android.view.LayoutInflater
-          import android.widget.*
-          """
-
-          for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
-                  content = f.read()
-
-              lines = content.split("\n")
-              clean_lines = []
-              for line in lines:
-                  sline = line.strip()
-                  if sline.startswith("import ") and (".model" in sline or ".network" in sline):
-                      continue
-                  clean_lines.append(line)
-              content = "\n".join(clean_lines)
-
-              pkg_idx = content.find("package ")
-              if pkg_idx != -1:
-                  end_of_pkg = content.find("\n", pkg_idx)
-                  content = content[:end_of_pkg+1] + "\n" + essential_imports + "\n" + content[end_of_pkg+1:]
-
-              content = re.sub(r'(\b\w+\.groups\[[^\]]+\])(?!\s*\?\.\s*value)', r'\1?.value', content)
-              content = re.sub(r'(\bgroups\[[^\]]+\])(?!\s*\?\.\s*value)', r'\1?.value', content)
-
-              if "MainActivity.kt" in kt_file:
-                  content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
-                  content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
-
-              content = re.sub(r'findViewById\s*<[^>]+>\s*\([^)]*\)', 'null', content)
-              content = re.sub(r'findViewById\s*\([^)]*\)', 'null', content)
-
-              with open(kt_file, "w", encoding="utf-8") as f:
-                  f.write(content)
 
           packages = [
               "app/src/main/java/com/nova/assistant",
