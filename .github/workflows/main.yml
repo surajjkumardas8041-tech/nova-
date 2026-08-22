@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Comprehensive Fix for Voice Session & ViewModel (Call Control Enabled)
+      - name: Targeted Kotlin Error Fixer (Call Control Preserved)
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Strip unsupported XML attributes
+          # 1. Clean unsupported XML attributes
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,9 +51,9 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Ensure Core Models & Stubs Exist (No Overlapping Packages)
+          # 2. Inject Model & Intent Definitions
           os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/model/CoreModelStubs.kt", "w", encoding="utf-8") as f:
+          with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.model
 
           data class ModelItem(val id: String = "", val title: String = "")
@@ -65,7 +65,7 @@ jobs:
           ''')
 
           os.makedirs("app/src/main/java/com/nova/assistant/intents", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/intents/CoreIntentStubs.kt", "w", encoding="utf-8") as f:
+          with open("app/src/main/java/com/nova/assistant/intents/AppIntents.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.intents
 
           open class AssistantIntentAction(
@@ -80,7 +80,7 @@ jobs:
           ''')
 
           os.makedirs("app/src/main/java/com/nova/assistant/receiver", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/receiver/CoreReceiverStubs.kt", "w", encoding="utf-8") as f:
+          with open("app/src/main/java/com/nova/assistant/receiver/AppReceivers.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.receiver
 
           import android.telephony.TelephonyManager
@@ -90,29 +90,41 @@ jobs:
           const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
           ''')
 
-          # 3. Patch Kotlin Files
+          # 3. Patch Specific Kotlin Syntax & Type Inference Errors
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              if "Core" in kt_file and "Stubs" in kt_file:
+              if "AppModels.kt" in kt_file or "AppIntents.kt" in kt_file or "AppReceivers.kt" in kt_file:
                   continue
               try:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Fix MatchGroup / array indexing errors in ViewModel & Regex
+                  # Fix Map Type Inference (K, V errors)
+                  content = re.sub(r'emptyMap\(\)', r'emptyMap<String, Any>()', content)
+                  content = re.sub(r'mutableMapOf\(\)', r'mutableMapOf<String, Any>()', content)
+                  content = re.sub(r'mapOf\(\)', r'mapOf<String, Any>()', content)
+
+                  # Fix ComponentName reference
+                  content = content.replace("componentName", "ComponentName(this, this::class.java)")
+
+                  # Fix Array/MatchGroup Indexing errors
                   content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value ?: ""', content)
                   content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value ?: ""', content)
-                  
-                  if "AssistantViewModel.kt" in kt_file:
-                      content = re.sub(r'([a-zA-Z0-9_]+)\[([a-zA-Z0-9_]+)\]', r'\1.getOrNull(\2) ?: ""', content)
+                  content = re.sub(r'([a-zA-Z0-9_]+)\[([a-zA-Z0-9_]+)\]', r'\1.getOrNull(\2) ?: ""', content)
 
+                  # Fix IntentActionHandler payload type mismatch
                   if "IntentActionHandler.kt" in kt_file:
                       content = content.replace("action.payload", "action.payload.toString()")
 
+                  # Fix MainActivity syntax issue
                   if "MainActivity.kt" in kt_file:
                       content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
                       content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
 
-                  # Parse Package and Imports
+                  # Fix Layout Inflation Overload Ambiguity
+                  if "NovaVoiceInteractionSessionService.kt" in kt_file:
+                      content = re.sub(r'inflate\(([^,]+),\s*null\)', r'inflate(\1, null as android.view.ViewGroup?)', content)
+
+                  # Clean Package and Import Structure
                   lines = content.split('\n')
                   pkg_line = ""
                   import_lines = set()
@@ -127,17 +139,15 @@ jobs:
                       else:
                           body_lines.append(line)
 
-                  # Always inject critical package imports
+                  # Add Essential Imports
                   import_lines.add("import com.nova.assistant.R")
                   import_lines.add("import com.nova.assistant.model.*")
                   import_lines.add("import com.nova.assistant.intents.*")
                   import_lines.add("import com.nova.assistant.receiver.*")
-
-                  # Inject Android UI & Layout imports
+                  import_lines.add("import android.content.ComponentName")
                   import_lines.add("import android.view.View")
                   import_lines.add("import android.view.ViewGroup")
                   import_lines.add("import android.view.LayoutInflater")
-                  import_lines.add("import android.content.ComponentName")
                   import_lines.add("import android.telephony.TelephonyManager")
 
                   final_content = ""
