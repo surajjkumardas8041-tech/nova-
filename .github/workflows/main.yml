@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Auto Fix Source Code and Missing References
+      - name: Auto Fix Source Code Structure & Imports
         run: |
           cat << 'EOF' > fix_script.py
           import glob, re, os
 
-          # 1. Fix MainActivity.kt Syntax Errors
+          # 1. Fix MainActivity.kt
           for main_file in glob.glob("app/src/main/java/**/MainActivity.kt", recursive=True):
               with open(main_file, "r", encoding="utf-8", errors="ignore") as f:
                   content = f.read()
@@ -48,10 +48,10 @@ jobs:
               with open(main_file, "w", encoding="utf-8") as f:
                   f.write(content)
 
-          # 2. Fix AssistantViewModel.kt Missing References & Regex Group Types
+          # 2. Fix AssistantViewModel.kt File Structure Strictly
           for vm_file in glob.glob("app/src/main/java/**/AssistantViewModel.kt", recursive=True):
               with open(vm_file, "r", encoding="utf-8", errors="ignore") as f:
-                  content = f.read()
+                  lines = f.readlines()
 
               # Search project for missing classes
               all_code = ""
@@ -73,34 +73,34 @@ jobs:
               if "class AssistantIntentAction" not in all_code:
                   stubs.append('sealed class AssistantIntentAction { object None : AssistantIntentAction(); data class OpenApp(val appName: String = "") : AssistantIntentAction() }')
 
-              # Fix Regex MatchGroup -> String conversions
-              content = re.sub(r'groups\[(".*?")\](?!\?\.value)', r'groups[\1]?.value', content)
-
-              # Sub-package imports
-              imports = [
+              pkg_line = "package com.nova.assistant.ui.viewmodel"
+              import_lines = set([
                   "import com.nova.assistant.*",
                   "import com.nova.assistant.data.*",
                   "import com.nova.assistant.data.model.*",
                   "import com.nova.assistant.model.*",
                   "import com.nova.assistant.network.*",
                   "import com.nova.assistant.api.*"
-              ]
+              ])
+              body_lines = []
 
-              # Clean old imports and rebuild file structure
-              lines = [l for l in content.split("\n") if not l.strip().startswith("import com.nova.assistant")]
-              pkg_idx = -1
-              for idx, line in enumerate(lines):
-                  if line.strip().startswith("package "):
-                      pkg_idx = idx
-                      break
+              for line in lines:
+                  sline = line.strip()
+                  if sline.startswith("package "):
+                      pkg_line = sline
+                  elif sline.startswith("import "):
+                      import_lines.add(sline)
+                  else:
+                      body_lines.append(line)
 
-              if pkg_idx != -1:
-                  final_lines = lines[:pkg_idx+1] + imports + stubs + lines[pkg_idx+1:]
-              else:
-                  final_lines = ["package com.nova.assistant.ui.viewmodel"] + imports + stubs + lines
+              body_text = "".join(body_lines)
+              body_text = re.sub(r'groups\[(".*?")\](?!\?\.value)', r'groups[\1]?.value', body_text)
+
+              # Order: Package -> All Imports -> Stub Classes -> Rest of Code
+              final_content = pkg_line + "\n\n" + "\n".join(sorted(list(import_lines))) + "\n\n" + "\n".join(stubs) + "\n\n" + body_text
 
               with open(vm_file, "w", encoding="utf-8") as f:
-                  f.write("\n".join(final_lines))
+                  f.write(final_content)
           EOF
           python3 fix_script.py
 
