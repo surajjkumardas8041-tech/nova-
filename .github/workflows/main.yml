@@ -34,27 +34,25 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Robust Safe Kotlin Compiler Patching
+      - name: Create Missing Stubs Only (No Source Code Mod)
         run: |
-          cat << 'EOF' > fix_script.py
-          import glob, os, re
-
-          # 1. Remove unsupported XML attributes
-          for xml_file in glob.glob("**/*.xml", recursive=True):
+          # 1. Manifest / XML Clean
+          python3 -c '
+          import glob, re
+          for xml in glob.glob("**/*.xml", recursive=True):
               try:
-                  with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
-                      content = f.read()
-                  new_content = re.sub(r'android:supportsLaunchFromKeyguard="[^"]*"', '', content)
-                  if new_content != content:
-                      with open(xml_file, "w", encoding="utf-8") as f:
-                          f.write(new_content)
-              except Exception:
-                  pass
+                  with open(xml, "r", encoding="utf-8", errors="ignore") as f:
+                      c = f.read()
+                  c2 = re.sub(r"android:supportsLaunchFromKeyguard=\"[^\"]*\"", "", c)
+                  if c != c2:
+                      with open(xml, "w", encoding="utf-8") as f: f.write(c2)
+              except Exception: pass
+          '
 
-          # 2. Inject Fully Typed Core Models & Stubs
-          os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
-              f.write('''package com.nova.assistant.model
+          # 2. Add minimal missing classes safely
+          mkdir -p app/src/main/java/com/nova/assistant/model
+          cat << 'EOF' > app/src/main/java/com/nova/assistant/model/AppModels.kt
+          package com.nova.assistant.model
 
           data class ModelItem(val id: String = "", val title: String = "")
           data class AssistantState(val isListening: Boolean = false)
@@ -62,11 +60,11 @@ jobs:
           data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
           data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
           class NovaAIBrainClient { suspend fun query(s: String): String = "" }
-          ''')
+          EOF
 
-          os.makedirs("app/src/main/java/com/nova/assistant/intents", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/intents/AppIntents.kt", "w", encoding="utf-8") as f:
-              f.write('''package com.nova.assistant.intents
+          mkdir -p app/src/main/java/com/nova/assistant/intents
+          cat << 'EOF' > app/src/main/java/com/nova/assistant/intents/AppIntents.kt
+          package com.nova.assistant.intents
 
           open class AssistantIntentAction(
               open val type: String = "",
@@ -77,78 +75,9 @@ jobs:
               object None : AssistantIntentAction()
               data class OpenApp(override val appName: String = "") : AssistantIntentAction(action = appName)
           }
-          ''')
-
-          os.makedirs("app/src/main/java/com/nova/assistant/receiver", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/receiver/AppReceivers.kt", "w", encoding="utf-8") as f:
-              f.write('''package com.nova.assistant.receiver
-
-          import android.telephony.TelephonyManager
-
-          val ACTION_INCOMING_CALL = TelephonyManager.ACTION_PHONE_STATE_CHANGED
-          val EXTRA_INCOMING_NUMBER = TelephonyManager.EXTRA_INCOMING_NUMBER
-          const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
-          ''')
-
-          # 3. Apply Precision Syntax Corrections to Existing Files
-          for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt", "AppReceivers.kt"]):
-                  continue
-              try:
-                  with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
-                      content = f.read()
-
-                  # Safe type inference fixes for generic maps
-                  content = re.sub(r'val\s+(\w+)\s*=\s*emptyMap\(\)', r'val \1: Map<String, Any> = emptyMap()', content)
-                  content = re.sub(r'val\s+(\w+)\s*=\s*mutableMapOf\(\)', r'val \1: MutableMap<String, Any> = mutableMapOf()', content)
-                  
-                  # Fix ComponentName resolution in Services
-                  content = re.sub(r'\bcomponentName\b', 'android.content.ComponentName(this, this::class.java)', content)
-
-                  # Fix View Inflation ambiguity
-                  content = re.sub(r'\.inflate\(([^,]+),\s*null\)', r'.inflate(\1, null as android.view.ViewGroup?)', content)
-
-                  # Fix String template syntax in MainActivity
-                  if "MainActivity.kt" in kt_file:
-                      content = content.replace('""$cmd""', 'cmd').replace('"\\" $cmd \\""', 'cmd')
-
-                  # Cleanup Packages and Imports safely
-                  lines = content.split('\n')
-                  pkg_line = ""
-                  import_lines = set()
-                  body_lines = []
-
-                  for line in lines:
-                      sline = line.strip()
-                      if sline.startswith("package "):
-                          pkg_line = line
-                      elif sline.startswith("import "):
-                          import_lines.add(line)
-                      else:
-                          body_lines.append(line)
-
-                  # Add necessary wildcard imports for stub accessibility
-                  import_lines.add("import com.nova.assistant.R")
-                  import_lines.add("import com.nova.assistant.model.*")
-                  import_lines.add("import com.nova.assistant.intents.*")
-                  import_lines.add("import com.nova.assistant.receiver.*")
-
-                  final_content = ""
-                  if pkg_line:
-                      final_content += pkg_line + "\n\n"
-                  if import_lines:
-                      final_content += "\n".join(sorted(list(import_lines))) + "\n\n"
-                  final_content += "\n".join(body_lines)
-
-                  with open(kt_file, "w", encoding="utf-8") as f:
-                      f.write(final_content)
-              except Exception:
-                  pass
-
           EOF
-          python3 fix_script.py
 
-      - name: Setup Dummy Resources, Themes and Configs
+      - name: Setup Dummy Resources and Configs
         run: |
           mkdir -p ~/.gradle
           echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
@@ -181,12 +110,12 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build Debug APK
+      - name: Clean Build Debug APK
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew assembleDebug --continue --no-daemon
           else
-            gradle assembleDebug --no-daemon
+            gradle assembleDebug --continue --no-daemon
           fi
 
       - name: Upload APK
