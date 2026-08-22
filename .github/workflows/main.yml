@@ -61,16 +61,33 @@ jobs:
           find app/src/main/java -iname "AssistantViewModel.kt" -exec sed -i 's/\.groups\[\([0-9]*\)\]/\.groups[\1]?.value/g' {} + || true
           find app/src/main/java -iname "AssistantViewModel.kt" -exec sed -i 's/\.groups\[\("[^"]*"\)\]/\.groups[\1]?.value/g' {} + || true
 
-      - name: Setup Dummy Resources and Memory
+      - name: Setup Dummy Resources, Themes and Configs
         run: |
           mkdir -p ~/.gradle
           echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
+
           mkdir -p app/src/main/res/mipmap app/src/main/res/drawable app/src/main/res/values app/src/main/res/xml
-          
+
+          find app/src/main/res/xml/ -type f -name "*.xml" -exec sed -i 's/android:supportsLaunchFromKeyguard="[^"]*"//g' {} + 2>/dev/null || true
+
           DUMMY_VECTOR='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF000000" android:pathData="M0,0h24v24H0z"/></vector>'
+
           [ ! -f "app/src/main/res/mipmap/ic_launcher.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher.xml
           [ ! -f "app/src/main/res/mipmap/ic_launcher_round.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher_round.xml
           [ ! -f "app/src/main/res/drawable/ic_nova_tile.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/drawable/ic_nova_tile.xml
+
+          cat << 'EOF' > app/src/main/res/values/generated_themes.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.NovaAssistant" parent="android:Theme.Material.Light.NoActionBar" />
+              <style name="Theme.NovaAssistant.Translucent" parent="Theme.NovaAssistant" />
+          </resources>
+          EOF
+
+          echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><include domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > app/src/main/res/xml/data_extraction_rules.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content></full-backup-content>' > app/src/main/res/xml/backup_rules.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><recognition-service xmlns:android="http://schemas.android.com/apk/res/android" />' > app/src/main/res/xml/recognition_service.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><accessibility-service xmlns:android="http://schemas.android.com/apk/res/android" />' > app/src/main/res/xml/accessibility_service_config.xml
 
           if [ -f "gradlew" ]; then
             chmod +x gradlew
