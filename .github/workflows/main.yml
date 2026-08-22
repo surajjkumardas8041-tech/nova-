@@ -34,11 +34,16 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Create Missing Classes File
+      - name: Create Global Stubs & Fix Source Files
         run: |
-          mkdir -p app/src/main/java/com/nova/assistant
-          cat << 'EOF' > app/src/main/java/com/nova/assistant/FixStubs.kt
-          package com.nova.assistant
+          cat << 'EOF' > fix_script.py
+          import glob, re, os
+
+          # 1. Create Stubs
+          base_dir = "app/src/main/java/com/nova/assistant"
+          os.makedirs(base_dir, exist_ok=True)
+          
+          stub_code = '''package com.nova.assistant
 
           open class AssistantIntentAction(
               open val type: String = "",
@@ -54,12 +59,31 @@ jobs:
           data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
           data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
           class NovaAIBrainClient { suspend fun query(s: String): String = "" }
-          EOF
+          '''
+          with open(os.path.join(base_dir, "FixStubs.kt"), "w", encoding="utf-8") as f:
+              f.write(stub_code)
 
-      - name: Patch AssistantViewModel Regex Errors
-        run: |
-          find app/src/main/java -iname "AssistantViewModel.kt" -exec sed -i 's/\.groups\[\([0-9]*\)\]/\.groups[\1]?.value/g' {} + || true
-          find app/src/main/java -iname "AssistantViewModel.kt" -exec sed -i 's/\.groups\[\("[^"]*"\)\]/\.groups[\1]?.value/g' {} + || true
+          # 2. Fix MainActivity.kt syntax errors
+          for main_file in glob.glob("app/src/main/java/**/MainActivity.kt", recursive=True):
+              with open(main_file, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+              
+              content = re.sub(r'Text\s*\(\s*text\s*=\s*""\s*\$?(\w+)\s*""\s*\)', r'Text(text = \1)', content)
+              content = re.sub(r'Text\s*\(\s*text\s*=\s*"\\"\s*\$?(\w+)\s*\\""\s*\)', r'Text(text = \1)', content)
+              content = re.sub(r'""\s*\$([a-zA-Z0-9_]+)\s*""', r'\1', content)
+              
+              with open(main_file, "w", encoding="utf-8") as f:
+                  f.write(content)
+
+          # 3. Patch regex in all kt files
+          for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
+              with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+              content = re.sub(r'(\.groups\[[^\]]+\])(?!\s*\?\.\s*value|\s*\.\s*value)', r'\1?.value', content)
+              with open(kt_file, "w", encoding="utf-8") as f:
+                  f.write(content)
+          EOF
+          python3 fix_script.py
 
       - name: Setup Dummy Resources, Themes and Configs
         run: |
