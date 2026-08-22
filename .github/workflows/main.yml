@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Inject Missing Imports and Fix ViewModel Errors
+      - name: Precise Imports & Syntax Fix
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Clean Manifest & Unsupported XML Attributes
+          # 1. Clean Manifest & XMLs
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,7 +51,7 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Inject Necessary Model and Intent Classes
+          # 2. Generate Essential Stubs
           os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
           with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.model
@@ -59,7 +59,7 @@ jobs:
           data class ModelItem(val id: String = "", val title: String = "")
           data class AssistantState(val isListening: Boolean = false)
           data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
-          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
+          data class ReminderItem(val id: String = "", val time: String = "", val title: String = "", val timestamp: Long = 0L)
           data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
           class NovaAIBrainClient { suspend fun query(s: String): String = "" }
           ''')
@@ -79,38 +79,40 @@ jobs:
           }
           ''')
 
-          # 3. Inject Imports into All Kotlin Files to resolve AssistantViewModel References
+          os.makedirs("app/src/main/java/com/nova/assistant/receiver", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/receiver/AppReceivers.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.receiver
+
+          import android.telephony.TelephonyManager
+
+          val ACTION_INCOMING_CALL = TelephonyManager.ACTION_PHONE_STATE_CHANGED
+          val EXTRA_INCOMING_NUMBER = TelephonyManager.EXTRA_INCOMING_NUMBER
+          const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
+          ''')
+
+          # 3. Clean Fix for Kotlin Files
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt"]):
+              if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt", "AppReceivers.kt"]):
                   continue
               try:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Fix MatchGroup == String Type error
-                  content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]\s*==', r'\1?.groups?.get(\2)?.value ==', content)
-                  content = re.sub(r'(\bgroups)\[([^\]]+)\]\s*==', r'\1?.get(\2)?.value ==', content)
+                  # Fix MatchGroup comparison
+                  content = re.sub(r'(\.groups\[[^\]]+\])\s*==', r'\1?.value ==', content)
 
-                  # Inject Missing Imports
-                  imports_to_add = [
-                      "import com.nova.assistant.model.*",
-                      "import com.nova.assistant.intents.*",
-                      "import com.nova.assistant.R"
-                  ]
-
-                  lines = content.split('\n')
-                  new_lines = []
-                  imported = False
-
-                  for line in lines:
-                      new_lines.append(line)
-                      if line.strip().startswith("package ") and not imported:
-                          for imp in imports_to_add:
-                              new_lines.append(imp)
-                          imported = True
+                  # Inject safe package imports
+                  if "import com.nova.assistant.model.*" not in content:
+                      content = re.sub(
+                          r'^(package [^\n]+)',
+                          r'\1\n\nimport com.nova.assistant.model.*\nimport com.nova.assistant.intents.*\nimport com.nova.assistant.receiver.*',
+                          content,
+                          count=1,
+                          flags=re.MULTILINE
+                      )
 
                   with open(kt_file, "w", encoding="utf-8") as f:
-                      f.write('\n'.join(new_lines))
+                      f.write(content)
               except Exception:
                   pass
 
@@ -153,9 +155,9 @@ jobs:
       - name: Build Debug APK
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew assembleDebug --stacktrace --no-daemon
           else
-            gradle assembleDebug --no-daemon
+            gradle assembleDebug --stacktrace --no-daemon
           fi
 
       - name: Upload APK
