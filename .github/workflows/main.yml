@@ -34,11 +34,26 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Fully Automated Source Fixer
+      - name: Fully Automated Source & XML Fixer
         run: |
           cat << 'EOF' > fix_script.py
           import glob, re, os
 
+          # 1. Strip unsupported XML attributes from ALL xml files in the repo
+          for xml_file in glob.glob("**/*.xml", recursive=True):
+              try:
+                  with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
+                      content = f.read()
+                  
+                  new_content = re.sub(r'android:supportsLaunchFromKeyguard="[^"]*"', '', content)
+                  
+                  if new_content != content:
+                      with open(xml_file, "w", encoding="utf-8") as f:
+                          f.write(new_content)
+              except Exception as e:
+                  pass
+
+          # 2. Patch Kotlin Source Code Errors
           stub_classes = '''
           open class AssistantIntentAction(
               open val type: String = "",
