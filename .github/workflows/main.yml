@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Precise Automated Code Repair
+      - name: Comprehensive Fix for Voice Session & ViewModel (Call Control Enabled)
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Clean unsupported XML attributes
+          # 1. Strip unsupported XML attributes
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,11 +51,21 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Define Shared Stubs ONCE to prevent Type Mismatches
+          # 2. Ensure Core Models & Stubs Exist (No Overlapping Packages)
+          os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/model/CoreModelStubs.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.model
 
-          # Intents Package Stub
+          data class ModelItem(val id: String = "", val title: String = "")
+          data class AssistantState(val isListening: Boolean = false)
+          data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
+          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
+          data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
+          class NovaAIBrainClient { suspend fun query(s: String): String = "" }
+          ''')
+
           os.makedirs("app/src/main/java/com/nova/assistant/intents", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/intents/SharedIntentsStubs.kt", "w", encoding="utf-8") as f:
+          with open("app/src/main/java/com/nova/assistant/intents/CoreIntentStubs.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.intents
 
           open class AssistantIntentAction(
@@ -69,22 +79,8 @@ jobs:
           }
           ''')
 
-          # Model Package Stub
-          os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/model/SharedModelStubs.kt", "w", encoding="utf-8") as f:
-              f.write('''package com.nova.assistant.model
-
-          data class ModelItem(val id: String = "", val title: String = "")
-          data class AssistantState(val isListening: Boolean = false)
-          data class NoteItem(val id: String = "", val title: String = "", val content: String = "", val timestamp: Long = 0L)
-          data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
-          data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
-          class NovaAIBrainClient { suspend fun query(s: String): String = "" }
-          ''')
-
-          # Receiver Package Stub for Call Control
           os.makedirs("app/src/main/java/com/nova/assistant/receiver", exist_ok=True)
-          with open("app/src/main/java/com/nova/assistant/receiver/SharedReceiverStubs.kt", "w", encoding="utf-8") as f:
+          with open("app/src/main/java/com/nova/assistant/receiver/CoreReceiverStubs.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.receiver
 
           import android.telephony.TelephonyManager
@@ -94,28 +90,29 @@ jobs:
           const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
           ''')
 
-          # 3. Patch and Repair Kotlin Files
+          # 3. Patch Kotlin Files
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              if "Shared" in kt_file:
+              if "Core" in kt_file and "Stubs" in kt_file:
                   continue
               try:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Regex replacements for MatchGroup indexing error
-                  content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value', content)
-                  content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value', content)
+                  # Fix MatchGroup / array indexing errors in ViewModel & Regex
+                  content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value ?: ""', content)
+                  content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value ?: ""', content)
+                  
+                  if "AssistantViewModel.kt" in kt_file:
+                      content = re.sub(r'([a-zA-Z0-9_]+)\[([a-zA-Z0-9_]+)\]', r'\1.getOrNull(\2) ?: ""', content)
 
-                  # Fix IntentActionHandler payload type string casting
                   if "IntentActionHandler.kt" in kt_file:
                       content = content.replace("action.payload", "action.payload.toString()")
 
-                  # Fix MainActivity syntax issue
                   if "MainActivity.kt" in kt_file:
                       content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
                       content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
 
-                  # Extract existing imports and package
+                  # Parse Package and Imports
                   lines = content.split('\n')
                   pkg_line = ""
                   import_lines = set()
@@ -130,15 +127,18 @@ jobs:
                       else:
                           body_lines.append(line)
 
-                  # Inject essential R and Stub Imports cleanly at top
+                  # Always inject critical package imports
                   import_lines.add("import com.nova.assistant.R")
-                  import_lines.add("import com.nova.assistant.intents.AssistantIntentAction")
                   import_lines.add("import com.nova.assistant.model.*")
+                  import_lines.add("import com.nova.assistant.intents.*")
+                  import_lines.add("import com.nova.assistant.receiver.*")
 
-                  if "ComponentName" in content: import_lines.add("import android.content.ComponentName")
-                  if "LayoutInflater" in content: import_lines.add("import android.view.LayoutInflater")
-                  if "View" in content: import_lines.add("import android.view.View")
-                  if "TelephonyManager" in content: import_lines.add("import android.telephony.TelephonyManager")
+                  # Inject Android UI & Layout imports
+                  import_lines.add("import android.view.View")
+                  import_lines.add("import android.view.ViewGroup")
+                  import_lines.add("import android.view.LayoutInflater")
+                  import_lines.add("import android.content.ComponentName")
+                  import_lines.add("import android.telephony.TelephonyManager")
 
                   final_content = ""
                   if pkg_line:
