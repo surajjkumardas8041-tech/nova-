@@ -1,157 +1,26 @@
-name: Build Android APK
+GitHub Actions-এর Build Debug APK বর্তমানে FAILED হচ্ছে। Screenshot-এর compiler errors অনুযায়ী "AssistantViewModel.kt" এবং "AssistantIntentAction.kt"-এর মধ্যে access/type mismatch আছে।
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+দয়া করে পুরো project code পরীক্ষা করে root cause ঠিক করো।
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+বিশেষভাবে:
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+1. "AssistantIntentAction" class/data class কোথায় এবং কীভাবে declared হয়েছে তা পরীক্ষা করো।
+2. কেন "AssistantViewModel.kt" থেকে "AssistantIntentAction" protected এবং constructor inaccessible হচ্ছে তা ঠিক করো।
+3. "AssistantIntentAction"-এর "type" এবং "payload" property-এর সঠিক declaration নিশ্চিত করো।
+4. "AssistantViewModel.kt"-এর unresolved "network" reference-টি ঠিক করো।
+5. শুধু error line-এ workaround দেবে না; ViewModel ও IntentAction-এর architecture-এর সঙ্গে সামঞ্জস্য রেখে proper fix করো।
+6. Nova-এর existing voice assistant functionality নষ্ট করবে না।
+7. প্রয়োজন হলে সংশ্লিষ্ট Kotlin files একসঙ্গে update করো।
+8. তারপর "./gradlew assembleDebug" চালিয়ে সম্পূর্ণ build verify করো।
+9. Build সফল না হওয়া পর্যন্ত APK তৈরি হয়েছে বলে দাবি করবে না।
+10. Build সফল হলে তৈরি হওয়া APK-এর exact path এবং download/export করার উপায় জানাবে।
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+বর্তমান build log-এ পাওয়া প্রধান error:
 
-      - name: Extract Project
-        run: |
-          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1)
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Extracting $ZIP_FILE..."
-            unzip -q -o "$ZIP_FILE" -d extracted_tmp
-            SETTINGS_FILE=$(find extracted_tmp -iname "settings.gradle*" | head -n 1)
-            if [ -n "$SETTINGS_FILE" ]; then
-              PROJ_DIR=$(dirname "$SETTINGS_FILE")
-              cp -a "$PROJ_DIR"/. .
-            fi
-            rm -rf extracted_tmp
-          fi
+- "Unresolved reference: network"
+- "Cannot access 'AssistantIntentAction': it is protected"
+- "Cannot access constructor"
+- "Unresolved reference: type"
+- "Unresolved reference: payload"
 
-      - name: Auto Fix Source Code Structure & Imports
-        run: |
-          cat << 'EOF' > fix_script.py
-          import glob, re, os
-
-          # 1. Fix MainActivity.kt
-          for main_file in glob.glob("app/src/main/java/**/MainActivity.kt", recursive=True):
-              with open(main_file, "r", encoding="utf-8", errors="ignore") as f:
-                  content = f.read()
-              content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
-              content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
-              with open(main_file, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-          # 2. Fix AssistantViewModel.kt File Structure Strictly
-          for vm_file in glob.glob("app/src/main/java/**/AssistantViewModel.kt", recursive=True):
-              with open(vm_file, "r", encoding="utf-8", errors="ignore") as f:
-                  lines = f.readlines()
-
-              # Search project for missing classes
-              all_code = ""
-              for root, dirs, files in os.walk("app/src/main/java"):
-                  for file in files:
-                      if file.endswith((".kt", ".java")):
-                          with open(os.path.join(root, file), "r", encoding="utf-8", errors="ignore") as pf:
-                              all_code += pf.read() + "\n"
-
-              stubs = []
-              if "class NoteItem" not in all_code and "data class NoteItem" not in all_code:
-                  stubs.append('data class NoteItem(val id: String = "", val title: String = "", val content: String = "")')
-              if "class ReminderItem" not in all_code and "data class ReminderItem" not in all_code:
-                  stubs.append('data class ReminderItem(val id: String = "", val title: String = "", val time: String = "")')
-              if "class CommandHistoryItem" not in all_code and "data class CommandHistoryItem" not in all_code:
-                  stubs.append('data class CommandHistoryItem(val id: String = "", val command: String = "")')
-              if "class NovaAIBrainClient" not in all_code:
-                  stubs.append('class NovaAIBrainClient { suspend fun query(s: String): String = "" }')
-              if "class AssistantIntentAction" not in all_code:
-                  stubs.append('sealed class AssistantIntentAction { object None : AssistantIntentAction(); data class OpenApp(val appName: String = "") : AssistantIntentAction() }')
-
-              pkg_line = "package com.nova.assistant.ui.viewmodel"
-              import_lines = set([
-                  "import com.nova.assistant.*",
-                  "import com.nova.assistant.data.*",
-                  "import com.nova.assistant.data.model.*",
-                  "import com.nova.assistant.model.*",
-                  "import com.nova.assistant.network.*",
-                  "import com.nova.assistant.api.*"
-              ])
-              body_lines = []
-
-              for line in lines:
-                  sline = line.strip()
-                  if sline.startswith("package "):
-                      pkg_line = sline
-                  elif sline.startswith("import "):
-                      import_lines.add(sline)
-                  else:
-                      body_lines.append(line)
-
-              body_text = "".join(body_lines)
-              body_text = re.sub(r'groups\[(".*?")\](?!\?\.value)', r'groups[\1]?.value', body_text)
-
-              # Order: Package -> All Imports -> Stub Classes -> Rest of Code
-              final_content = pkg_line + "\n\n" + "\n".join(sorted(list(import_lines))) + "\n\n" + "\n".join(stubs) + "\n\n" + body_text
-
-              with open(vm_file, "w", encoding="utf-8") as f:
-                  f.write(final_content)
-          EOF
-          python3 fix_script.py
-
-      - name: Fix Resources and Memory
-        run: |
-          mkdir -p ~/.gradle
-          echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
-
-          mkdir -p app/src/main/res/mipmap app/src/main/res/drawable app/src/main/res/values app/src/main/res/xml
-
-          find app/src/main/res/xml/ -type f -name "*.xml" -exec sed -i 's/android:supportsLaunchFromKeyguard="[^"]*"//g' {} + 2>/dev/null || true
-
-          DUMMY_VECTOR='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF000000" android:pathData="M0,0h24v24H0z"/></vector>'
-
-          [ ! -f "app/src/main/res/mipmap/ic_launcher.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher.xml
-          [ ! -f "app/src/main/res/mipmap/ic_launcher_round.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/mipmap/ic_launcher_round.xml
-          [ ! -f "app/src/main/res/drawable/ic_nova_tile.xml" ] && echo "$DUMMY_VECTOR" > app/src/main/res/drawable/ic_nova_tile.xml
-
-          cat << 'EOF' > app/src/main/res/values/generated_themes.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <style name="Theme.NovaAssistant" parent="android:Theme.Material.Light.NoActionBar" />
-              <style name="Theme.NovaAssistant.Translucent" parent="Theme.NovaAssistant" />
-          </resources>
-          EOF
-
-          echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><include domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > app/src/main/res/xml/data_extraction_rules.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content></full-backup-content>' > app/src/main/res/xml/backup_rules.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><recognition-service xmlns:android="http://schemas.android.com/apk/res/android" />' > app/src/main/res/xml/recognition_service.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><accessibility-service xmlns:android="http://schemas.android.com/apk/res/android" />' > app/src/main/res/xml/accessibility_service_config.xml
-
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-          fi
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Build Debug APK
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m"
-        run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --no-daemon
-          else
-            gradle assembleDebug --no-daemon
-          fi
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          
+প্রথমে source code ঠিক করো, তারপর আবার Debug APK build করো।
