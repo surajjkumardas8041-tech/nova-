@@ -34,25 +34,40 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Create Missing Stubs Only (No Source Code Mod)
+      - name: Fix MainActivity Syntax & Missing Stubs
         run: |
-          # 1. Manifest / XML Clean
-          python3 -c '
-          import glob, re
-          for xml in glob.glob("**/*.xml", recursive=True):
-              try:
-                  with open(xml, "r", encoding="utf-8", errors="ignore") as f:
-                      c = f.read()
-                  c2 = re.sub(r"android:supportsLaunchFromKeyguard=\"[^\"]*\"", "", c)
-                  if c != c2:
-                      with open(xml, "w", encoding="utf-8") as f: f.write(c2)
-              except Exception: pass
-          '
+          cat << 'EOF' > fix_script.py
+          import glob, os, re
 
-          # 2. Add minimal missing classes safely
-          mkdir -p app/src/main/java/com/nova/assistant/model
-          cat << 'EOF' > app/src/main/java/com/nova/assistant/model/AppModels.kt
-          package com.nova.assistant.model
+          # 1. Clean Manifest & XMLs
+          for xml_file in glob.glob("**/*.xml", recursive=True):
+              try:
+                  with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
+                      content = f.read()
+                  new_content = re.sub(r'android:supportsLaunchFromKeyguard="[^"]*"', '', content)
+                  if new_content != content:
+                      with open(xml_file, "w", encoding="utf-8") as f:
+                          f.write(new_content)
+              except Exception:
+                  pass
+
+          # 2. Fix MainActivity Line 302 Syntax Error
+          main_activity_path = "app/src/main/java/com/nova/assistant/MainActivity.kt"
+          if os.path.exists(main_activity_path):
+              with open(main_activity_path, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+
+              # Fix double quotes / malformed strings around line 302
+              content = re.sub(r'""([^"]+)""', r'"\1"', content)
+              content = content.replace('""', '"')
+
+              with open(main_activity_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+
+          # 3. Create Necessary Stubs
+          os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.model
 
           data class ModelItem(val id: String = "", val title: String = "")
           data class AssistantState(val isListening: Boolean = false)
@@ -60,11 +75,11 @@ jobs:
           data class ReminderItem(val id: String = "", val title: String = "", val time: String = "", val timestamp: Long = 0L)
           data class CommandHistoryItem(val id: String = "", val command: String = "", val timestamp: Long = 0L)
           class NovaAIBrainClient { suspend fun query(s: String): String = "" }
-          EOF
+          ''')
 
-          mkdir -p app/src/main/java/com/nova/assistant/intents
-          cat << 'EOF' > app/src/main/java/com/nova/assistant/intents/AppIntents.kt
-          package com.nova.assistant.intents
+          os.makedirs("app/src/main/java/com/nova/assistant/intents", exist_ok=True)
+          with open("app/src/main/java/com/nova/assistant/intents/AppIntents.kt", "w", encoding="utf-8") as f:
+              f.write('''package com.nova.assistant.intents
 
           open class AssistantIntentAction(
               open val type: String = "",
@@ -75,7 +90,10 @@ jobs:
               object None : AssistantIntentAction()
               data class OpenApp(override val appName: String = "") : AssistantIntentAction(action = appName)
           }
+          ''')
+
           EOF
+          python3 fix_script.py
 
       - name: Setup Dummy Resources and Configs
         run: |
@@ -110,12 +128,12 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Clean Build Debug APK
+      - name: Build Debug APK
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --continue --no-daemon
+            ./gradlew assembleDebug --no-daemon
           else
-            gradle assembleDebug --continue --no-daemon
+            gradle assembleDebug --no-daemon
           fi
 
       - name: Upload APK
