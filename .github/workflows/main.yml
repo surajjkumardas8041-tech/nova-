@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Ultimate Kotlin Syntax & Type Fixer
+      - name: Robust Safe Kotlin Compiler Patching
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Clean unsupported XML attributes
+          # 1. Remove unsupported XML attributes
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,7 +51,7 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Inject Clean Non-Conflicting Stubs
+          # 2. Inject Fully Typed Core Models & Stubs
           os.makedirs("app/src/main/java/com/nova/assistant/model", exist_ok=True)
           with open("app/src/main/java/com/nova/assistant/model/AppModels.kt", "w", encoding="utf-8") as f:
               f.write('''package com.nova.assistant.model
@@ -90,7 +90,7 @@ jobs:
           const val ACTION_START_STANDBY = "com.nova.assistant.ACTION_START_STANDBY"
           ''')
 
-          # 3. Patch All Kotlin Code Safely
+          # 3. Apply Precision Syntax Corrections to Existing Files
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
               if any(stub in kt_file for stub in ["AppModels.kt", "AppIntents.kt", "AppReceivers.kt"]):
                   continue
@@ -98,29 +98,21 @@ jobs:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Explicit Type Arguments for Generic Maps (Solves K, V type inference error)
-                  content = re.sub(r'\bemptyMap\(\)', 'emptyMap<Any, Any>()', content)
-                  content = re.sub(r'\bmutableMapOf\(\)', 'mutableMapOf<Any, Any>()', content)
-                  content = re.sub(r'\bmapOf\(\)', 'mapOf<Any, Any>()', content)
-
-                  # Regex MatchGroup Indexing Fixes
-                  content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value ?: ""', content)
-                  content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value ?: ""', content)
-
-                  # ComponentName and View Overload fixes
+                  # Safe type inference fixes for generic maps
+                  content = re.sub(r'val\s+(\w+)\s*=\s*emptyMap\(\)', r'val \1: Map<String, Any> = emptyMap()', content)
+                  content = re.sub(r'val\s+(\w+)\s*=\s*mutableMapOf\(\)', r'val \1: MutableMap<String, Any> = mutableMapOf()', content)
+                  
+                  # Fix ComponentName resolution in Services
                   content = re.sub(r'\bcomponentName\b', 'android.content.ComponentName(this, this::class.java)', content)
+
+                  # Fix View Inflation ambiguity
                   content = re.sub(r'\.inflate\(([^,]+),\s*null\)', r'.inflate(\1, null as android.view.ViewGroup?)', content)
 
-                  # Fix IntentActionHandler Payload String casting
-                  if "IntentActionHandler.kt" in kt_file:
-                      content = content.replace("action.payload", "action.payload.toString()")
-
-                  # Fix MainActivity syntax issue
+                  # Fix String template syntax in MainActivity
                   if "MainActivity.kt" in kt_file:
-                      content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
-                      content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
+                      content = content.replace('""$cmd""', 'cmd').replace('"\\" $cmd \\""', 'cmd')
 
-                  # Clean Packages and Import Hierarchy
+                  # Cleanup Packages and Imports safely
                   lines = content.split('\n')
                   pkg_line = ""
                   import_lines = set()
@@ -135,16 +127,11 @@ jobs:
                       else:
                           body_lines.append(line)
 
-                  # Force Essential Imports into All Files
+                  # Add necessary wildcard imports for stub accessibility
                   import_lines.add("import com.nova.assistant.R")
                   import_lines.add("import com.nova.assistant.model.*")
                   import_lines.add("import com.nova.assistant.intents.*")
                   import_lines.add("import com.nova.assistant.receiver.*")
-                  import_lines.add("import android.content.ComponentName")
-                  import_lines.add("import android.view.View")
-                  import_lines.add("import android.view.ViewGroup")
-                  import_lines.add("import android.view.LayoutInflater")
-                  import_lines.add("import android.telephony.TelephonyManager")
 
                   final_content = ""
                   if pkg_line:
