@@ -34,12 +34,12 @@ jobs:
             rm -rf extracted_tmp
           fi
 
-      - name: Smart Code Fixer (Preserving Call Control & Features)
+      - name: Precise Code Repair (Preserving Full Call Control)
         run: |
           cat << 'EOF' > fix_script.py
           import glob, os, re
 
-          # 1. Clean unsupported XML attributes without destroying elements
+          # 1. Strip problematic XML attributes safely
           for xml_file in glob.glob("**/*.xml", recursive=True):
               try:
                   with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,48 +51,57 @@ jobs:
               except Exception:
                   pass
 
-          # 2. Fix Kotlin files while preserving call control and service logic
+          # 2. Fix Kotlin Files & Clean Imports
           for kt_file in glob.glob("app/src/main/java/**/*.kt", recursive=True):
               try:
                   with open(kt_file, "r", encoding="utf-8", errors="ignore") as f:
                       content = f.read()
 
-                  # Inject essential Android imports if missing
-                  if "ComponentName" in content and "import android.content.ComponentName" not in content:
-                      content = "import android.content.ComponentName\n" + content
-                  if "LayoutInflater" in content and "import android.view.LayoutInflater" not in content:
-                      content = "import android.view.LayoutInflater\n" + content
-                  if "View" in content and "import android.view.View" not in content:
-                      content = "import android.view.View\n" + content
-
-                  # Fix MatchGroup / array indexing errors safely
+                  # Regex replacements for syntax errors
                   content = re.sub(r'(\b\w+)\.groups\[([^\]]+)\]', r'\1?.groups?.get(\2)?.value', content)
                   content = re.sub(r'(\bgroups)\[([^\]]+)\]', r'\1?.get(\2)?.value', content)
 
-                  # Fix IntentActionHandler payload type mismatch (cast Any to String safely)
                   if "IntentActionHandler.kt" in kt_file:
                       content = content.replace("action.payload", "action.payload.toString()")
 
-                  # Fix MainActivity formatting syntax
                   if "MainActivity.kt" in kt_file:
                       content = content.replace('Text(text = ""$cmd"")', 'Text(text = cmd)')
                       content = content.replace('Text(text = "\\" $cmd \\"")', 'Text(text = cmd)')
 
+                  # Clean import positions
+                  lines = content.split('\n')
+                  pkg_line = ""
+                  import_lines = set()
+                  body_lines = []
+
+                  for line in lines:
+                      sline = line.strip()
+                      if sline.startswith("package "):
+                          pkg_line = line
+                      elif sline.startswith("import "):
+                          import_lines.add(line)
+                      else:
+                          body_lines.append(line)
+
+                  # Add necessary missing imports
+                  if "ComponentName" in content: import_lines.add("import android.content.ComponentName")
+                  if "LayoutInflater" in content: import_lines.add("import android.view.LayoutInflater")
+                  if "View" in content: import_lines.add("import android.view.View")
+                  if "TelephonyManager" in content: import_lines.add("import android.telephony.TelephonyManager")
+
+                  final_content = ""
+                  if pkg_line:
+                      final_content += pkg_line + "\n\n"
+                  if import_lines:
+                      final_content += "\n".join(sorted(list(import_lines))) + "\n\n"
+                  final_content += "\n".join(body_lines)
+
                   with open(kt_file, "w", encoding="utf-8") as f:
-                      f.write(content)
+                      f.write(final_content)
               except Exception:
                   pass
 
-          # 3. Inject missing models & Telephony constants for Call Receiver & Services
-          model_dir = "app/src/main/java/com/nova/assistant/model"
-          os.makedirs(model_dir, exist_ok=True)
-          with open(os.path.join(model_dir, "Models.kt"), "w", encoding="utf-8") as f:
-              f.write('''package com.nova.assistant.model
-
-          data class ModelItem(val id: String = "", val title: String = "")
-          data class AssistantState(val isListening: Boolean = false)
-          ''')
-
+          # 3. Create missing Telephony Constants & Model Stubs
           global_stubs = '''package com.nova.assistant.receiver
 
           import android.telephony.TelephonyManager
@@ -122,7 +131,8 @@ jobs:
               "app/src/main/java/com/nova/assistant/ui/viewmodel",
               "app/src/main/java/com/nova/assistant/service",
               "app/src/main/java/com/nova/assistant/receiver",
-              "app/src/main/java/com/nova/assistant/intents"
+              "app/src/main/java/com/nova/assistant/intents",
+              "app/src/main/java/com/nova/assistant/model"
           ]
           for p in packages:
               os.makedirs(p, exist_ok=True)
